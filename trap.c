@@ -4,6 +4,7 @@
 #include "param.h"
 #include "arm.h"
 #include "proc.h"
+#include "memlayout.h"
 
 // trap routine
 void swi_handler (struct trapframe *r)

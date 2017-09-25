@@ -10,7 +10,7 @@ SECTIONS
    needs to have the same virtual/physical address. entry.S and start.c
    run in this initial setting.*/
   /* . = 0x10000; */
-  . = 0x80010000;
+  . = 0x40010000;
   .start_sec : {
     build/entry.o(.text)
     build/start.o(.text .text.*)
@@ -46,9 +46,9 @@ SECTIONS
 
   /*the kernel executes at the higher 2GB address space, but loaded
    at the lower memory (0x20000)*/
-  . = 0xC0020000;  /* HCLIN: below text symbols is in VA space **/
+  . = 0x80020000;  /* HCLIN: below text symbols is in VA space **/
 
-  .text : AT(0x80020000){ /** here to make code also copied into phymem **/
+  .text : AT(0x40020000){ /** here to make code also copied into phymem **/
     *(.text .text.* .gnu.linkonce.t.*)
   }
 

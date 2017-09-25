@@ -1,87 +1,124 @@
-// driver for ARM PrimeCell UART (PL011)
 #include "types.h"
 #include "defs.h"
-#include "param.h"
-#include "arm.h"
+//#include "arm.h"
 #include "memlayout.h"
 
-static volatile uint *uart_base;
-void isr_uart (struct trapframe *tf, int idx);
+#include "uart_io.h"
+#include "macro.h"
 
-#define UART_DR		0	// data register
-#define UART_RSR	1	// receive status register/error clear register
-#define UART_FR		6	// flag register
-#define	UART_IBRD	9	// integer baud rate register
-#define UART_FBRD	10	// Fractional baud rate register
-#define UART_LCR	11	// line control register
-#define UART_CR		12	// control register
-#define UART_IMSC	14	// interrupt mask set/clear register
-#define UART_MIS	16	// masked interrupt status register
-#define	UART_ICR	17	// interrupt clear register
-// bits in registers
-#define UARTFR_TXFF	(1 << 5)	// tramit FIFO full
-#define UARTFR_RXFE	(1 << 4)	// receive FIFO empty
-#define	UARTCR_RXE	(1 << 9)	// enable receive
-#define UARTCR_TXE	(1 << 8)	// enable transmit
-#define	UARTCR_EN	(1 << 0)	// enable UART
-#define UARTLCR_FEN	(1 << 4)	// enable FIFO
-#define UART_RXI	(1 << 4)	// receive interrupt
-#define UART_TXI	(1 << 5)	// transmit interrupt
-#define UART_BITRATE 19200
-
-// enable uart
-void uart_init (void *addr)
+void uartputc(int c)
 {
-    uint left;
-
-    uart_base = addr;
-
-    // set the bit rate: integer/fractional baud rate registers
-    uart_base[UART_IBRD] = UART_CLK / (16 * UART_BITRATE);
-
-    left = UART_CLK % (16 * UART_BITRATE);
-    uart_base[UART_FBRD] = (left * 4 + UART_BITRATE / 2) / UART_BITRATE;
-
-    // enable trasmit and receive
-    uart_base[UART_CR] |= (UARTCR_EN | UARTCR_RXE | UARTCR_TXE);
-
-    // enable FIFO
-    uart_base[UART_LCR] |= UARTLCR_FEN;
+  while ((mmio_read32(UART0_LSR+KERNBASE) & 0x20) == 0) continue;
+  mmio_write32(UART0_THR+KERNBASE, c);
 }
 
-// enable the receive (interrupt) for uart (after PIC has initialized)
-void uart_enable_rx ()
+void uart_puts(const char *s)
 {
-    uart_base[UART_IMSC] = UART_RXI;
-    pic_enable(PIC_UART0, isr_uart);
+  while (*s) {
+    if (*s == '\n')
+      uartputc('\r');
+    uartputc(*s++);
+  }
 }
 
-void uartputc (int c)
+int uartgetc()
 {
-    // wait a short period if the transmit FIFO is full
-    while (uart_base[UART_FR] & UARTFR_TXFF) {
-        micro_delay(10);
-    }
-
-    uart_base[UART_DR] = c;
+  if ((mmio_read32(UART0_LSR+KERNBASE) & 0x01) == 0) {
+    return -1;
+  } else {
+    return mmio_read32(UART0_RBR+KERNBASE);
+  }
 }
 
-//poll the UART for data
-int uartgetc (void)
-{
-    if (uart_base[UART_FR] & UARTFR_RXFE) {
-        return -1;
-    }
-
-    return uart_base[UART_DR];
-}
+// *****************************************************************************
 
 void isr_uart (struct trapframe *tf, int idx)
 {
+  
+  if ((mmio_read32(UART0_LSR+KERNBASE) & 0x01) != 0) {
+    consoleintr(uartgetc);
+  }
+    /*
     if (uart_base[UART_MIS] & UART_RXI) {
         consoleintr(uartgetc);
     }
 
     // clear the interrupt
     uart_base[UART_ICR] = UART_RXI | UART_TXI;
+    */
 }
+
+void uart_enable_rx ()
+{
+
+    mmio_write32(UART0_IER+KERNBASE, 5 | mmio_read32(UART0_IER)); // ERBFI + ELSI
+    
+    pic_enable(UART0_IRQNO, isr_uart);
+    
+    // enable uart interrupts for gic
+    // 0 = no int | 1 = rx int | 2 = rx/tx int
+    /*
+    switch (mode) {
+      case 1:
+        mmio_write32(UART0_IER, 1);
+        break;
+      case 2:
+        mmio_write32(UART0_IER, 5 | mmio_read32(UART0_IER)); // ERBFI + ELSI
+        break;
+      default:
+        mmio_write32(UART0_IER, 0);
+        break;
+    }
+    */
+}
+
+// *****************************************************************************
+
+void print_hex(uint val) {
+    char digit[16] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+    char number[8] = {'0','0','0','0','0','0','0','0'};
+    uint base = 16;
+    int i = 7;
+    uartputc('0');
+    uartputc('x');
+
+    while(val > 0) {
+        number[i--] = digit[val % base];
+        val /= base;
+
+    }
+    for(i=0;i<8;++i) {
+        uartputc(number[i]);
+    }
+    uartputc('\r');
+    uartputc('\n');
+}
+
+// *****************************************************************************
+// bof my debug
+// *****************************************************************************
+
+void hexstrings ( unsigned int d )
+{
+  unsigned int rb;
+  unsigned int rc;
+
+  rb=32;
+  while(1)
+  {
+    rb-=4;
+    rc=(d>>rb)&0xF;
+    if(rc>9) rc+=0x37; else rc+=0x30;
+    uartputc(rc);
+    if(rb==0) break;
+  }
+  uartputc(0x20);
+}
+
+void hexstring ( unsigned int d )
+{
+  hexstrings(d);
+  uartputc(0x0D);
+  uartputc(0x0A);
+}
+// eof my debug

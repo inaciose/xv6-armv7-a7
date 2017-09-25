@@ -13,6 +13,7 @@ OBJS = \
 	asm.o\
 	bio.o\
 	buddy.o\
+	cache.o\
 	console.o\
 	exec.o\
 	file.o\
@@ -45,6 +46,9 @@ kernel.elf: $(addprefix build/,$(KERN_OBJS)) kernel.ld build/initcode build/fs.i
 	$(call LINK_BIN, kernel.ld, kernel.elf, \
 		$(addprefix build/,$(KERN_OBJS)), \
 		initcode fs.img)
+	@$(OBJCOPY) kernel.elf -O binary xv6.img
+	@echo kernel image has been built.
+	@$(OBJDUMP) -d kernel.elf > kernel.dis
 	$(OBJDUMP) -S kernel.elf > kernel.asm
 	$(OBJDUMP) -t kernel.elf | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > kernel.sym
 	rm -f initcode fs.img
@@ -72,6 +76,6 @@ build/fs.img:
 clean: 
 	rm -rf build
 	rm -f *.o *.d *.asm *.sym vectors.S bootblock entryother \
-	initcode initcode.out kernel xv6.img fs.img kernel.elf memfs
+	initcode initcode.out kernel xv6.img fs.img kernel.elf memfs kernel.dis
 	make -C tools clean
 	make -C usr clean

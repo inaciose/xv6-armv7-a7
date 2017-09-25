@@ -151,11 +151,12 @@ static int mappages (pde_t *pgdir, void *va, uint size, uint pa, int ap)
 static void flush_tlb (void)
 {
     uint val = 0;
-    asm("MCR p15, 0, %[r], c8, c7, 0" : :[r]"r" (val):);
-
-    // invalid entire data and instruction cache
-    asm ("MCR p15,0,%[r],c7,c10,0": :[r]"r" (val):);
-    asm ("MCR p15,0,%[r],c7,c11,0": :[r]"r" (val):);
+    // invalidate tlb
+    asm volatile("mcr p15, 0, %[r], c8, c7, 0" : :[r]"r" (val):);
+    // flush icache all
+    asm volatile ("mcr p15, 0, %0, c7, c5,  0" : : "r" (0) : "memory");
+    // flush dcache
+    flush_dcache_all();
 }
 
 // Switch to the user page table (TTBR0)

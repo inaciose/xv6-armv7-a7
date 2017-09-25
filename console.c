@@ -150,6 +150,8 @@ void consputc (int c)
         uartputc(' ');
         uartputc('\b');
     } else {
+        if (c == '\n')
+          uartputc('\r');
         uartputc(c);
     }
 

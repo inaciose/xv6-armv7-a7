@@ -7,6 +7,8 @@
 #include "memlayout.h"
 #include "mmu.h"
 
+#define GIC_BASE (0x01C80000)
+
 extern void* end;
 
 struct cpu	cpus[NCPU];
@@ -18,9 +20,17 @@ void kmain (void)
 {
     uint vectbl;
 
+    // Configure port PH24 (green led) for output
+    asm ("\n"
+      "mov r0,  #0x00000001 \n"
+      "ldr r3, =0x01C20908 \n"
+      "str r0, [r3] \n");
+
+    // only one cpu for now
     cpu = &cpus[0];
 
-    uart_init (P2V(UART0));
+    // uart init to be moved from start.c (after move it to device/uart.c)
+    //uart_init (P2V(UART0));
 
     // interrrupt vector table is in the middle of first 1MB. We use the left
     // over for page tables
@@ -36,7 +46,7 @@ void kmain (void)
     
     trap_init ();				// vector table and stacks for models
     
-    gic_init(P2V(VIC_BASE));    // arm v2 gic init
+    gic_init(P2V(GIC_BASE));    // arm v2 gic init
 
     uart_enable_rx ();			// interrupt for uart
     consoleinit ();				// console
@@ -46,8 +56,8 @@ void kmain (void)
     fileinit ();				// file table
     iinit ();					// inode cache
     ideinit ();					// ide (memory block device)
+    
     timer_init (HZ);			// the timer (ticker)
-
 
     sti ();
     userinit();					// first user process

@@ -5,20 +5,50 @@
 #include "mmu.h"
 #include "defs.h"
 #include "memlayout.h"
+#include "macro.h"
+#include "device/uart_io.h" // to be removed
+
+// eof to be moved to device/uart.c
+void _clock_init_uart(void)
+{
+  // Open the clock gate for UART0
+  //set_wbit(APB2_GATE, 1 << (APB2_GATE_UART_SHIFT + CONFIG_CONS_INDEX - 1));
+  mmio_write32or(APB2_GATE, 1 << (APB2_GATE_UART_SHIFT + CONFIG_CONS_INDEX - 1));
+  // Deassert UART0 reset (only needed on A31/A64/H3)
+  mmio_write32or(APB2_RESET, 1 << (APB2_RESET_UART_SHIFT + CONFIG_CONS_INDEX - 1));
+}
+
+void _uart_init(void)
+{
+  _clock_init_uart();
+  
+  // select dll dlh
+  mmio_write32(UART0_LCR, 0x80);
+  // disable uart0 interrupts
+  mmio_write32(UART0_IER, 0);
+  // set baudrate
+  mmio_write32(UART0_DLL, BAUD_115200);
+  // set line control
+  mmio_write32(UART0_LCR, LC_8_N_1);
+  // enable uart0 interrupts
+  //writel(0x3, UART0_IER);
+  //writel(0x7, UART0_IER);
+}
+// eof to be moved to device/uart.c
 
 void _uart_putc(int c)
 {
-    volatile uint8 * uart0 = (uint8*)UART0;
-    *uart0 = c;
+  while ((mmio_read32(UART0_LSR) & 0x20) == 0) continue;
+  mmio_write32(UART0_THR, c);
 }
 
-
-void _puts (char *s)
+void _puts(const char *s)
 {
-    while (*s != '\0') {
-        _uart_putc(*s);
-        s++;
-    }
+  while (*s) {
+    if (*s == '\n')
+      _uart_putc('\r');
+    _uart_putc(*s++);
+  }
 }
 
 void _putint (char *prefix, uint val, char* suffix)
@@ -140,13 +170,13 @@ void load_pgtlb (uint32* kern_pgtbl, uint32* user_pgtbl)
     asm("MCR p15, 0, %[v], c2, c0, 0": :[v]"r" (val):);
 
     // ok, enable paging using read/modify/write
-    asm("MRC p15, 0, %[r], c1, c0, 0": [r]"=r" (val)::);
+    //asm("MRC p15, 0, %[r], c1, c0, 0": [r]"=r" (val)::);
 
-    val |= 0x80300D; // enable MMU, cache, write buffer, high vector tbl,
+    //val |= 0x80300D; // enable MMU, cache, write buffer, high vector tbl,
                      // disable subpage
-    asm("MCR p15, 0, %[r], c1, c0, 0": :[r]"r" (val):);
+    //asm("MCR p15, 0, %[r], c1, c0, 0": :[r]"r" (val):);
 
-    _flush_all();
+    //_flush_all();
 }
 
 extern void * edata_entry;
@@ -165,7 +195,11 @@ void clear_bss (void)
 
 void start (void)
 {
-	uint32  vectbl;
+	  uint32  vectbl;
+    
+    // uart init to be moved to main.c (after move it to device/uart.c)
+    _uart_init();
+    
     _puts("starting xv6 for ARM...\n");
 
     // double map the low memory, required to enable paging
@@ -178,15 +212,25 @@ void start (void)
 
     if (vectbl <= (uint)&end) {
         _puts("error: vector table overlap and cprintf() is 0x00000\n");
-        cprintf ("error: vector table overlaps kernel\n");
     }
+
     // V, P, len, is_mem
     set_bootpgtbl(VEC_TBL, PHY_START, 1 << PDE_SHIFT, 0); // V, P, SZ, ISDEV
     set_bootpgtbl(DEVBASE1, DEVBASE1, DEV_MEM_SZ, 1); // V, P, SZ, ISDEV: add to prevent crash on _puts
     set_bootpgtbl(KERNBASE+DEVBASE1, DEVBASE1, DEV_MEM_SZ, 1); // V, P, SZ, ISDEV
-    set_bootpgtbl(KERNBASE+DEVBASE2, DEVBASE2, DEV_MEM_SZ, 1); // V, P, SZ, ISDEV
-
+    //set_bootpgtbl(KERNBASE+DEVBASE2, DEVBASE2, DEV_MEM_SZ, 1); // V, P, SZ, ISDEV
+    
     load_pgtlb (kernel_pgtbl, user_pgtbl);
+    
+    // enable mmu
+    uint  val;
+    // enable paging using read/modify/write
+    asm("MRC p15, 0, %[r], c1, c0, 0": [r]"=r" (val)::);
+    val |= 0x80300D; // enable MMU, cache, write buffer, high vector tbl, disable subpage
+    asm("MCR p15, 0, %[r], c1, c0, 0": :[r]"r" (val):);
+
+    _flush_all();
+
     jump_stack ();
     
     // We can now call normal kernel functions at high memory
